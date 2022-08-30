@@ -723,7 +723,7 @@ func SaveEpoch(data *types.EpochData) error {
 		return fmt.Errorf("error saving validator attestation assignments to db: %w", err)
 	}
 
-	withdrawals, err := getTotalWithdrawals()
+	withdrawals, err := getTotalWithdrawals(data.Epoch)
 	if err != nil {
 		return fmt.Errorf("error get total withdrawals to db: %w", err)
 	}
@@ -1134,14 +1134,14 @@ func saveValidatorAttestationAssignments(epoch uint64, assignments map[string]ui
 	return nil
 }
 
-func getTotalWithdrawals() (map[uint64]uint64, error) {
+func getTotalWithdrawals(epoch uint64) (map[uint64]uint64, error) {
 	withdrawals := make(map[uint64]uint64)
 	var rows []struct {
 		ValidatorIndex uint64
 		Amount         uint64
 	}
 
-	err := ReaderDb.Select(&rows, "SELECT validatorindex, SUM(amount) AS amount FROM validator_withdrawal GROUP BY validatorindex")
+    err := WriterDb.Select(&rows, "SELECT validatorindex, SUM(amount) AS amount FROM validator_withdrawal WHERE epoch <= $1 GROUP BY validatorindex", epoch)
 	if err != nil {
 		return nil, err
 	}
@@ -1170,7 +1170,7 @@ func saveValidatorBalances(epoch uint64, validators []*types.Validator, tx *sql.
 		valueStrings := make([]string, 0, batchSize)
 		valueArgs := make([]interface{}, 0, batchSize*5)
 		for i, v := range validators[start:end] {
-			valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d)", i*6+1, i*6+2, i*6+3, i*6+4, i*6+5, i*6+6))
+			valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d)", i*7+1, i*7+2, i*7+3, i*7+4, i*7+5, i*7+6, i*7+7))
 			valueArgs = append(valueArgs, epoch)
 			valueArgs = append(valueArgs, v.Index)
 			valueArgs = append(valueArgs, v.Balance)
@@ -1179,17 +1179,20 @@ func saveValidatorBalances(epoch uint64, validators []*types.Validator, tx *sql.
 			val, exists := withdrawals[v.Index]
 			if exists {
 				valueArgs = append(valueArgs, val)
+				valueArgs = append(valueArgs, v.Balance+val)
 			} else {
 				valueArgs = append(valueArgs, 0)
+				valueArgs = append(valueArgs, v.Balance)
 			}
 		}
 		stmt := fmt.Sprintf(`
-		INSERT INTO validator_balances_p (epoch, validatorindex, balance, effectivebalance, week, withdrawal)
+		INSERT INTO validator_balances_p (epoch, validatorindex, balance, effectivebalance, week, withdrawal, total_balance)
 		VALUES %s
 		ON CONFLICT (epoch, validatorindex, week) DO UPDATE SET
 			balance          = EXCLUDED.balance,
 			effectivebalance = EXCLUDED.effectivebalance,
-			withdrawal 		 = EXCLUDED.withdrawal`, strings.Join(valueStrings, ","))
+			withdrawal 		 = EXCLUDED.withdrawal,
+            total_balance    = EXCLUDED.total_balance`, strings.Join(valueStrings, ","))
 		_, err := tx.Exec(stmt, valueArgs...)
 		if err != nil {
 			return err
@@ -1217,21 +1220,26 @@ func saveValidatorBalancesRecent(epoch uint64, validators []*types.Validator, tx
 		valueStrings := make([]string, 0, batchSize)
 		valueArgs := make([]interface{}, 0, batchSize*3)
 		for i, v := range validators[start:end] {
-			valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d)", i*3+1, i*3+2, i*3+3))
+			valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d)", i*5+1, i*5+2, i*5+3, i*5+4, i*5+5))
 			valueArgs = append(valueArgs, epoch)
 			valueArgs = append(valueArgs, v.Index)
+			valueArgs = append(valueArgs, v.Balance)
 			val, exists := withdrawals[v.Index]
 			if exists {
-				valueArgs = append(valueArgs, v.Balance + val)
+				valueArgs = append(valueArgs, val)
+				valueArgs = append(valueArgs, v.Balance+val)
 			} else {
+				valueArgs = append(valueArgs, 0)
 				valueArgs = append(valueArgs, v.Balance)
 			}
 		}
 		stmt := fmt.Sprintf(`
-			INSERT INTO validator_balances_recent (epoch, validatorindex, balance)
+			INSERT INTO validator_balances_recent (epoch, validatorindex, balance, withdrawal, total_balance)
 			VALUES %s
 			ON CONFLICT (epoch, validatorindex) DO UPDATE SET
-				balance = EXCLUDED.balance`, strings.Join(valueStrings, ","))
+				balance = EXCLUDED.balance,
+				withdrawal = EXCLUDED.withdrawal,
+				total_balance = EXCLUDED.total_balance`, strings.Join(valueStrings, ","))
 
 		_, err := tx.Exec(stmt, valueArgs...)
 		if err != nil {
