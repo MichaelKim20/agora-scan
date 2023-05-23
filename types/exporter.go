@@ -1,7 +1,7 @@
 package types
 
 import (
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 )
 
 // ChainHead is a struct to hold chain head data

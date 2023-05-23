@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prysmaticlabs/prysm/v3/math"
+	"github.com/prysmaticlabs/prysm/v4/math"
 )
 
 type chartHandler struct {
