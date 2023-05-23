@@ -1298,6 +1298,15 @@ func saveBlocks(blocks map[uint64]map[string]*types.Block, tx *sql.Tx) error {
 	}
 	defer stmtValidatorsLastAttestationSlot.Close()
 
+	stmtWithdrawal, err := tx.Prepare(`
+		INSERT INTO validator_withdrawal (withdrawalindex, epoch, slot, validatorindex, address, amount)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (withdrawalindex) DO NOTHING`)
+	if err != nil {
+		return err
+	}
+	defer stmtWithdrawal.Close()
+
 	slots := make([]uint64, 0, len(blocks))
 	for slot := range blocks {
 		slots = append(slots, slot)
@@ -1432,6 +1441,31 @@ func saveBlocks(blocks map[uint64]map[string]*types.Block, tx *sql.Tx) error {
 				}
 			}
 			logger.Tracef("done, took %v", time.Since(n))
+
+			n = time.Now()
+			logger.Tracef("writing withdrawal data")
+
+			if payload := b.ExecutionPayload; payload != nil {
+				if b.ExecutionPayload.Withdrawals != nil {
+					logger.Printf("Withdrawals is %v", len(b.ExecutionPayload.Withdrawals))
+				} else {
+					logger.Printf("Withdrawals is null")
+				}
+			} else {
+				logger.Printf("ExecutionPayload is null")
+			}
+
+			if payload := b.ExecutionPayload; payload != nil && payload.Withdrawals != nil {
+				for _, wd := range payload.Withdrawals {
+					_, err := stmtWithdrawal.Exec(wd.Index, wd.Slot/utils.Config.Chain.Config.SlotsPerEpoch, wd.Slot, wd.ValidatorIndex, wd.Address, wd.Amount)
+					if err != nil {
+						return fmt.Errorf("error executing stmtWithdrawal for block %v: %v: %v", b.Slot, wd.Index, err)
+					}
+				}
+			}
+			logger.Tracef("done, took %v", time.Since(n))
+
+
 			n = time.Now()
 			logger.Tracef("writing proposer slashings data")
 			for i, ps := range b.ProposerSlashings {
