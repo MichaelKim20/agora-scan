@@ -734,7 +734,7 @@ func SaveEpoch(data *types.EpochData) error {
 		logger.WithFields(logrus.Fields{"exportEpoch": data.Epoch, "chainEpoch": utils.TimeToEpoch(time.Now())}).Infof("skipping exporting recent validator balance because epoch is far behind head")
 	} else {
 		logger.Infof("exporting recent validator balance")
-		err = saveValidatorBalancesRecent(data.Epoch, data.Validators, tx)
+		err = saveValidatorBalancesRecent(data.Epoch, data.Blocks, data.Validators, tx)
 		if err != nil {
 			return fmt.Errorf("error saving recent validator balances to db: %w", err)
 		}
@@ -1169,7 +1169,31 @@ func saveValidatorBalances(epoch uint64, validators []*types.Validator, tx *sql.
 	return nil
 }
 
-func saveValidatorBalancesRecent(epoch uint64, validators []*types.Validator, tx *sql.Tx) error {
+func saveValidatorBalancesRecent(epoch uint64, blocks map[uint64]map[string]*types.Block, validators []*types.Validator, tx *sql.Tx) error {
+	slots := make([]uint64, 0, len(blocks))
+	for slot := range blocks {
+		slots = append(slots, slot)
+	}
+	sort.Slice(slots, func(i, j int) bool {
+		return slots[i] < slots[j]
+	})
+
+	withdrawals := make(map[uint64]uint64)
+	for _, slot := range slots {
+		for _, b := range blocks[slot] {
+			if payload := b.ExecutionPayload; payload != nil && payload.Withdrawals != nil {
+				for _, w := range payload.Withdrawals {
+					_, exists := withdrawals[w.ValidatorIndex]
+					if !exists {
+						withdrawals[w.ValidatorIndex] = w.Amount
+					} else {
+						withdrawals[w.ValidatorIndex] += w.Amount
+					}
+				}
+			}
+		}
+	}
+
 	start := time.Now()
 	defer func() {
 		metrics.TaskDuration.WithLabelValues("db_save_validator_balances_recent").Observe(time.Since(start).Seconds())
@@ -1190,7 +1214,12 @@ func saveValidatorBalancesRecent(epoch uint64, validators []*types.Validator, tx
 			valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d)", i*3+1, i*3+2, i*3+3))
 			valueArgs = append(valueArgs, epoch)
 			valueArgs = append(valueArgs, v.Index)
-			valueArgs = append(valueArgs, v.Balance)
+			val, exists := withdrawals[v.Index]
+			if exists {
+				valueArgs = append(valueArgs, v.Balance + val)
+			} else {
+				valueArgs = append(valueArgs, v.Balance)
+			}
 		}
 		stmt := fmt.Sprintf(`
 			INSERT INTO validator_balances_recent (epoch, validatorindex, balance)
