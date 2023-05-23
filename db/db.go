@@ -1480,16 +1480,6 @@ func saveBlocks(blocks map[uint64]map[string]*types.Block, tx *sql.Tx) error {
 			n = time.Now()
 			logger.Tracef("writing withdrawal data")
 
-			if payload := b.ExecutionPayload; payload != nil {
-				if b.ExecutionPayload.Withdrawals != nil {
-					logger.Printf("Withdrawals is %v", len(b.ExecutionPayload.Withdrawals))
-				} else {
-					logger.Printf("Withdrawals is null")
-				}
-			} else {
-				logger.Printf("ExecutionPayload is null")
-			}
-
 			if payload := b.ExecutionPayload; payload != nil && payload.Withdrawals != nil {
 				for _, wd := range payload.Withdrawals {
 					_, err := stmtWithdrawal.Exec(wd.Index, wd.Slot/utils.Config.Chain.Config.SlotsPerEpoch, wd.Slot, wd.ValidatorIndex, wd.Address, wd.Amount)
