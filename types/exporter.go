@@ -115,6 +115,18 @@ type Block struct {
 	SyncAggregate     *SyncAggregate    // warning: sync aggregate may be nil, for phase0 blocks
 	ExecutionPayload  *ExecutionPayload // warning: payload may be nil, for phase0/altair blocks
 	Canonical         bool
+	SignedBLSToExecutionChange []*SignedBLSToExecutionChange
+}
+
+type SignedBLSToExecutionChange struct {
+	Message   BLSToExecutionChange
+	Signature []byte
+}
+
+type BLSToExecutionChange struct {
+	Validatorindex uint64
+	BlsPubkey      []byte
+	Address        []byte
 }
 
 type Transaction struct {
@@ -150,6 +162,16 @@ type ExecutionPayload struct {
 	BaseFeePerGas uint64
 	BlockHash     []byte
 	Transactions  []*Transaction
+	Withdrawals   []*Withdrawals
+}
+
+type Withdrawals struct {
+	Slot           uint64 `json:"slot,omitempty"`
+	BlockRoot      []byte `json:"blockroot,omitempty"`
+	Index          uint64 `json:"index"`
+	ValidatorIndex uint64 `json:"validatorindex"`
+	Address        []byte `json:"address"`
+	Amount         uint64 `json:"amount"`
 }
 
 // Eth1Data is a struct to hold the ETH1 data
