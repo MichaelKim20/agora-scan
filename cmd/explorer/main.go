@@ -113,7 +113,7 @@ func main() {
 				logrus.Printf("setting default rpc page size to 500")
 				utils.Config.Indexer.Node.PageSize = 500
 			}
-			rpcClient, err = rpc.NewPrysmClient(cfg.Indexer.Node.Host+":"+cfg.Indexer.Node.Port, chainID)
+			rpcClient, err = rpc.NewPrysmClient(cfg.Indexer.Node.Host+":"+cfg.Indexer.Node.GRPCPort, "http://"+cfg.Indexer.Node.Host+":"+cfg.Indexer.Node.Port, chainID)
 			if err != nil {
 				logrus.Fatal(err)
 			}

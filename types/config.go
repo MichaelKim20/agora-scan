@@ -39,6 +39,7 @@ type Config struct {
 			Host     string `yaml:"host" envconfig:"INDEXER_NODE_HOST"`
 			Type     string `yaml:"type" envconfig:"INDEXER_NODE_TYPE"`
 			PageSize int32  `yaml:"pageSize" envconfig:"INDEXER_NODE_PAGE_SIZE"`
+			GRPCPort string `yaml:"grpcPort" envconfig:"INDEXER_NODE_GRPC_PORT"`
 		} `yaml:"node"`
 		Eth1Endpoint string `yaml:"eth1Endpoint" envconfig:"INDEXER_ETH1_ENDPOINT"`
 		// Deprecated Please use Phase0 config DEPOSIT_CONTRACT_ADDRESS

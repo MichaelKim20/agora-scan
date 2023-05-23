@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"eth2-exporter/types"
 	"eth2-exporter/utils"
 	"fmt"
+	"io/ioutil"
 	"math/big"
+	"net/http"
 	"sync"
 	"time"
 
@@ -26,6 +30,7 @@ import (
 // PrysmClient holds information about the Prysm Client
 type PrysmClient struct {
 	client              ethpb.BeaconChainClient
+	endpoint            string
 	nodeClient          ethpb.NodeClient
 	conn                *grpc.ClientConn
 	assignmentsCache    *lru.Cache
@@ -35,13 +40,13 @@ type PrysmClient struct {
 }
 
 // NewPrysmClient is used for a new Prysm client connection
-func NewPrysmClient(endpoint string, chainId *big.Int) (*PrysmClient, error) {
+func NewPrysmClient(grpcEndpoint string, rpcEndpoint string, chainId *big.Int) (*PrysmClient, error) {
 	dialOpts := []grpc.DialOption{
 		grpc.WithInsecure(),
 		// Maximum receive value 128 MB
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(128 * 1024 * 1024)),
 	}
-	conn, err := grpc.Dial(endpoint, dialOpts...)
+	conn, err := grpc.Dial(grpcEndpoint, dialOpts...)
 
 	if err != nil {
 		return nil, err
@@ -53,6 +58,7 @@ func NewPrysmClient(endpoint string, chainId *big.Int) (*PrysmClient, error) {
 	logger.Printf("gRPC connection to backend node established")
 	client := &PrysmClient{
 		client:              chainClient,
+		endpoint: 			 rpcEndpoint,
 		nodeClient:          nodeClient,
 		conn:                conn,
 		assignmentsCacheMux: &sync.Mutex{},
@@ -1284,5 +1290,36 @@ func (pc *PrysmClient) GetFinalityCheckpoints(epoch uint64) (*types.FinalityChec
 }
 
 func (pc *PrysmClient) GetSyncCommittee(stateID string, epoch uint64) (*StandardSyncCommittee, error) {
-	return nil, fmt.Errorf("not implemented")
+	syncCommitteesResp, err := pc.get(fmt.Sprintf("%s/eth/v1/beacon/states/%s/sync_committees?epoch=%d", pc.endpoint, stateID, epoch))
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving sync_committees for epoch %v (state: %v): %w", epoch, stateID, err)
+	}
+	var parsedSyncCommittees StandardSyncCommitteesResponse
+	err = json.Unmarshal(syncCommitteesResp, &parsedSyncCommittees)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing sync_committees data for epoch %v (state: %v): %w", epoch, stateID, err)
+	}
+	return &parsedSyncCommittees.Data, nil
+}
+
+func (pc *PrysmClient) get(url string) ([]byte, error) {
+	// t0 := time.Now()
+	// defer func() { fmt.Println(url, time.Since(t0)) }()
+	client := &http.Client{Timeout: time.Second * 120}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	data, err := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, errors.New("not found 404")
+		}
+		return nil, fmt.Errorf("url: %v, error-response: %s", url, data)
+	}
+	return data, err
 }
