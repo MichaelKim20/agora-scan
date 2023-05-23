@@ -723,8 +723,13 @@ func SaveEpoch(data *types.EpochData) error {
 		return fmt.Errorf("error saving validator attestation assignments to db: %w", err)
 	}
 
+	withdrawals, err := getTotalWithdrawals()
+	if err != nil {
+		return fmt.Errorf("error get total withdrawals to db: %w", err)
+	}
+
 	logger.Infof("exporting validator balance data")
-	err = saveValidatorBalances(data.Epoch, data.Validators, tx)
+	err = saveValidatorBalances(data.Epoch, data.Validators, tx, withdrawals)
 	if err != nil {
 		return fmt.Errorf("error saving validator balances to db: %w", err)
 	}
@@ -734,7 +739,7 @@ func SaveEpoch(data *types.EpochData) error {
 		logger.WithFields(logrus.Fields{"exportEpoch": data.Epoch, "chainEpoch": utils.TimeToEpoch(time.Now())}).Infof("skipping exporting recent validator balance because epoch is far behind head")
 	} else {
 		logger.Infof("exporting recent validator balance")
-		err = saveValidatorBalancesRecent(data.Epoch, data.Blocks, data.Validators, tx)
+		err = saveValidatorBalancesRecent(data.Epoch, data.Validators, tx, withdrawals)
 		if err != nil {
 			return fmt.Errorf("error saving recent validator balances to db: %w", err)
 		}
@@ -1129,7 +1134,25 @@ func saveValidatorAttestationAssignments(epoch uint64, assignments map[string]ui
 	return nil
 }
 
-func saveValidatorBalances(epoch uint64, validators []*types.Validator, tx *sql.Tx) error {
+func getTotalWithdrawals() (map[uint64]uint64, error) {
+	withdrawals := make(map[uint64]uint64)
+	var rows []struct {
+		ValidatorIndex uint64
+		Amount         uint64
+	}
+
+	err := ReaderDb.Select(&rows, "SELECT validatorindex, SUM(amount) AS amount FROM validator_withdrawal GROUP BY validatorindex")
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		withdrawals[row.ValidatorIndex] = row.Amount
+	}
+
+	return withdrawals, nil
+}
+
+func saveValidatorBalances(epoch uint64, validators []*types.Validator, tx *sql.Tx, withdrawals map[uint64]uint64) error {
 	start := time.Now()
 	defer func() {
 		metrics.TaskDuration.WithLabelValues("db_save_validator_balances").Observe(time.Since(start).Seconds())
@@ -1147,19 +1170,26 @@ func saveValidatorBalances(epoch uint64, validators []*types.Validator, tx *sql.
 		valueStrings := make([]string, 0, batchSize)
 		valueArgs := make([]interface{}, 0, batchSize*5)
 		for i, v := range validators[start:end] {
-			valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d)", i*5+1, i*5+2, i*5+3, i*5+4, i*5+5))
+			valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d)", i*6+1, i*6+2, i*6+3, i*6+4, i*6+5, i*6+6))
 			valueArgs = append(valueArgs, epoch)
 			valueArgs = append(valueArgs, v.Index)
 			valueArgs = append(valueArgs, v.Balance)
 			valueArgs = append(valueArgs, v.EffectiveBalance)
 			valueArgs = append(valueArgs, epoch/1575)
+			val, exists := withdrawals[v.Index]
+			if exists {
+				valueArgs = append(valueArgs, val)
+			} else {
+				valueArgs = append(valueArgs, 0)
+			}
 		}
 		stmt := fmt.Sprintf(`
-		INSERT INTO validator_balances_p (epoch, validatorindex, balance, effectivebalance, week)
+		INSERT INTO validator_balances_p (epoch, validatorindex, balance, effectivebalance, week, withdrawal)
 		VALUES %s
 		ON CONFLICT (epoch, validatorindex, week) DO UPDATE SET
 			balance          = EXCLUDED.balance,
-			effectivebalance = EXCLUDED.effectivebalance`, strings.Join(valueStrings, ","))
+			effectivebalance = EXCLUDED.effectivebalance,
+			withdrawal 		 = EXCLUDED.withdrawal`, strings.Join(valueStrings, ","))
 		_, err := tx.Exec(stmt, valueArgs...)
 		if err != nil {
 			return err
@@ -1169,31 +1199,7 @@ func saveValidatorBalances(epoch uint64, validators []*types.Validator, tx *sql.
 	return nil
 }
 
-func saveValidatorBalancesRecent(epoch uint64, blocks map[uint64]map[string]*types.Block, validators []*types.Validator, tx *sql.Tx) error {
-	slots := make([]uint64, 0, len(blocks))
-	for slot := range blocks {
-		slots = append(slots, slot)
-	}
-	sort.Slice(slots, func(i, j int) bool {
-		return slots[i] < slots[j]
-	})
-
-	withdrawals := make(map[uint64]uint64)
-	for _, slot := range slots {
-		for _, b := range blocks[slot] {
-			if payload := b.ExecutionPayload; payload != nil && payload.Withdrawals != nil {
-				for _, w := range payload.Withdrawals {
-					_, exists := withdrawals[w.ValidatorIndex]
-					if !exists {
-						withdrawals[w.ValidatorIndex] = w.Amount
-					} else {
-						withdrawals[w.ValidatorIndex] += w.Amount
-					}
-				}
-			}
-		}
-	}
-
+func saveValidatorBalancesRecent(epoch uint64, validators []*types.Validator, tx *sql.Tx, withdrawals map[uint64]uint64) error {
 	start := time.Now()
 	defer func() {
 		metrics.TaskDuration.WithLabelValues("db_save_validator_balances_recent").Observe(time.Since(start).Seconds())
