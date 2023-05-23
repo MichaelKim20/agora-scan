@@ -881,7 +881,8 @@ func genesisDepositsExporter() {
 				LEFT JOIN (
 					SELECT DISTINCT ON (publickey) publickey, signature FROM eth1_deposits
 				) d ON d.publickey = v.pubkey
-				WHERE v.validatorindex < $1`, genesisValidatorsCount)
+				WHERE v.validatorindex < $1
+				ON CONFLICT (block_slot, block_index) DO NOTHING`, genesisValidatorsCount)
 		if err != nil {
 			tx.Rollback()
 			logger.Errorf("error exporting genesis-deposits: %v", err)
