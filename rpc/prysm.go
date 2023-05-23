@@ -894,6 +894,7 @@ func (pc *PrysmClient) parseBellatrixBlock(block *ethpb.BeaconBlockContainer) (*
 			BaseFeePerGas: binary.LittleEndian.Uint64(payload.BaseFeePerGas), // TODO, this is problematic
 			BlockHash:     payload.BlockHash,
 			Transactions:  txs,
+			Withdrawals:   nil,
 		}
 	}
 
@@ -1053,7 +1054,7 @@ func (pc *PrysmClient) parseCapellaBlock(block *ethpb.BeaconBlockContainer) (*ty
 		SyncAggregate: nil,
 		ExecutionPayload: nil,
 		Canonical:    block.Canonical,
-		// SignedBLSToExecutionChange: make([]*types.SignedBLSToExecutionChange, len(blk.Block.Body.BlsToExecutionChanges)),
+		SignedBLSToExecutionChange: make([]*types.SignedBLSToExecutionChange, len(blk.Block.Body.BlsToExecutionChanges)),
 	}
 
 
@@ -1090,6 +1091,18 @@ func (pc *PrysmClient) parseCapellaBlock(block *ethpb.BeaconBlockContainer) (*ty
 			txs = append(txs, tx)
 		}
 
+		withdrawals := make([]*types.Withdrawals, 0, len(payload.Withdrawals))
+		for _, rawWithdrawal := range payload.Withdrawals {
+			withdraw := &types.Withdrawals{}
+			withdraw.Slot = uint64(blk.Block.Slot)
+			withdraw.BlockRoot = block.BlockRoot
+			withdraw.Index = rawWithdrawal.Index
+			withdraw.ValidatorIndex = uint64(rawWithdrawal.ValidatorIndex)
+			withdraw.Address = rawWithdrawal.Address
+			withdraw.Amount = rawWithdrawal.Amount
+			withdrawals = append(withdrawals, withdraw)
+		}
+
 		b.ExecutionPayload = &types.ExecutionPayload{
 			ParentHash:    payload.ParentHash,
 			FeeRecipient:  payload.FeeRecipient,
@@ -1105,6 +1118,7 @@ func (pc *PrysmClient) parseCapellaBlock(block *ethpb.BeaconBlockContainer) (*ty
 			BaseFeePerGas: binary.LittleEndian.Uint64(payload.BaseFeePerGas), // TODO, this is problematic
 			BlockHash:     payload.BlockHash,
 			Transactions:  txs,
+			Withdrawals:   withdrawals,
 		}
 	}
 
@@ -1239,7 +1253,6 @@ func (pc *PrysmClient) parseCapellaBlock(block *ethpb.BeaconBlockContainer) (*ty
 			Signature:      voluntaryExit.Signature,
 		}
 	}
-/*
 	// SignedBLSToExecutionChange
 	for i, blsToExec := range blk.Block.Body.BlsToExecutionChanges {
 		b.SignedBLSToExecutionChange[i] = &types.SignedBLSToExecutionChange{
@@ -1251,7 +1264,6 @@ func (pc *PrysmClient) parseCapellaBlock(block *ethpb.BeaconBlockContainer) (*ty
 			Signature:      blsToExec.Signature,
 		}
 	}
- */
 	return b, nil
 }
 
