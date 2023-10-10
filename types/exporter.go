@@ -194,6 +194,11 @@ type TotalWithdrawals struct {
 	Count          uint64 `json:"count"`
 }
 
+type TotalWithdrawals2 struct {
+	ValidatorIndex  uint64 `json:"validatorindex"`
+	Withdrawal      uint64 `json:"withdrawal"`
+}
+
 type WithdrawalsByEpoch struct {
 	Epoch          uint64
 	ValidatorIndex uint64

@@ -2586,6 +2586,15 @@ func GetValidatorTotalWithdrawals(validators []uint64, slot uint64) ([]*types.To
 	return totalwithdrawals, err
 }
 
+func GetValidatorTotalWithdrawals2(validators []uint64) ([]*types.TotalWithdrawals2, error) {
+	var totalwithdrawals []*types.TotalWithdrawals2
+	err := ReaderDb.Select(&totalwithdrawals, `
+	SELECT w.validatorindex, w.withdrawal FROM validators w
+	WHERE w.validatorindex = ANY($1)
+	ORDER BY w.validatorindex`, pq.Array(validators))
+	return totalwithdrawals, err
+}
+
 func GetValidatorWithdrawalsCount(validator uint64) (count, lastWithdrawalEpoch uint64, err error) {
 
 	type dbResponse struct {

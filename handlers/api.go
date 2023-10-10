@@ -1223,7 +1223,7 @@ func ApiValidatorTotalWithdrawals(w http.ResponseWriter, r *http.Request) {
 		slot = services.LatestSlot()
 	}
 
-	data, err := db.GetValidatorTotalWithdrawals(queryIndices, slot)
+	data, err := db.GetValidatorTotalWithdrawals2(queryIndices)
 	if err != nil {
 		logger.Errorf("error retrieving withdrawals for %v route: %v", r.URL.String(), err)
 		sendErrorResponse(j, r.URL.String(), "could not retrieve db results")
@@ -1233,11 +1233,10 @@ func ApiValidatorTotalWithdrawals(w http.ResponseWriter, r *http.Request) {
 	dataFormatted := make([]*types.ApiValidatorTotalWithdrawalResponse, 0, len(data))
 	for _, w := range data {
 		dataFormatted = append(dataFormatted, &types.ApiValidatorTotalWithdrawalResponse{
-			Epoch:          w.Slot / utils.Config.Chain.Config.SlotsPerEpoch,
-			Slot:           w.Slot,
+			Epoch:          slot / utils.Config.Chain.Config.SlotsPerEpoch,
+			Slot:           slot,
 			ValidatorIndex: w.ValidatorIndex,
-			Sum:            w.Sum,
-			Count:          w.Count,
+			Sum:            w.Withdrawal,
 		})
 	}
 
